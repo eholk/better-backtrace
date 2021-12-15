@@ -6,8 +6,8 @@ pub fn print_backtrace() {
             if let Some(filename) = sym.filename() {
                 println!("\tat {}:{}", filename.display(), sym.lineno().unwrap())
             }
+            index += 1;
         });
-        index += 1;
         true
     });
 }
