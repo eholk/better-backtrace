@@ -1,5 +1,12 @@
-use better_backtrace::print_backtrace;
-
 fn main() {
-    print_backtrace();
+    better_backtrace::install_panic_handler().unwrap();
+    foo()
+}
+
+fn foo() {
+    bar()
+}
+
+fn bar() {
+    panic!()
 }

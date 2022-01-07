@@ -1,5 +1,9 @@
 use std::{io::Write, str::FromStr};
 
+mod panic_handler;
+
+pub use panic_handler::install_panic_handler;
+
 pub fn print_backtrace() {
     format_backtrace(&BacktraceConfig::default(), std::io::stdout())
 }
