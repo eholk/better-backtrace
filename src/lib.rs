@@ -1,14 +1,11 @@
 use std::{io::Write, str::FromStr};
 
-use backtrace::Symbol;
-
 pub fn print_backtrace() {
     format_backtrace(&BacktraceConfig::default(), std::io::stdout())
 }
 
 fn format_backtrace(config: &BacktraceConfig, mut out: impl Write) {
     let trace = collect_backtrace();
-    let mut index = 0;
     let mut show_frames = match config.style {
         BacktraceStyle::None => false,
         BacktraceStyle::Short => !trace.contains_short_end,
@@ -20,7 +17,7 @@ fn format_backtrace(config: &BacktraceConfig, mut out: impl Write) {
                 show_frames = false;
             }
         }
-        if show_frames && config.filter.should_display_frame(&frame.name) {
+        if config.filter.should_display_frame(show_frames, &frame.name) {
             writeln!(out, "{:2}: {}", index, frame.name).unwrap();
             if let Some((filename, line)) = &frame.file_position {
                 writeln!(out, "\tat {}:{}", filename, line).unwrap();
@@ -116,8 +113,8 @@ impl FilterClause {
 struct Filter(Vec<FilterClause>);
 
 impl Filter {
-    fn should_display_frame(&self, frame_name: &str) -> bool {
-        self.0.iter().fold(true, |display, clause| {
+    fn should_display_frame(&self, default: bool, frame_name: &str) -> bool {
+        self.0.iter().fold(default, |display, clause| {
             match clause.should_display_frame(frame_name) {
                 Some(display) => display,
                 None => display,
@@ -131,7 +128,7 @@ impl FromStr for Filter {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         Ok(Filter(
-            s.split(";")
+            s.split(',')
                 .map(|part| {
                     let mut chars = part.chars();
                     match chars.next().unwrap() {
@@ -145,15 +142,53 @@ impl FromStr for Filter {
     }
 }
 
+#[derive(Debug, PartialEq)]
 enum BacktraceStyle {
     None,
     Short,
     Full,
 }
 
+impl FromStr for BacktraceStyle {
+    type Err = ();
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "0" => Ok(Self::None),
+            "1" => Ok(Self::Short),
+            "full" => Ok(Self::Full),
+            _ => Err(()),
+        }
+    }
+}
+
+#[derive(Debug, PartialEq)]
 struct BacktraceConfig {
     style: BacktraceStyle,
     filter: Filter,
+}
+
+impl FromStr for BacktraceConfig {
+    type Err = ();
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        if s.is_empty() {
+            return Ok(BacktraceConfig::default());
+        }
+
+        if !s.starts_with("-") && !s.starts_with("+") {
+            if let Some((style, filters)) = s.split_once(",") {
+                return Ok(BacktraceConfig {
+                    style: BacktraceStyle::from_str(style)?,
+                    filter: Filter::from_str(filters)?,
+                });
+            }
+        }
+        Ok(BacktraceConfig {
+            filter: Filter::from_str(s)?,
+            ..Default::default()
+        })
+    }
 }
 
 impl Default for BacktraceConfig {
