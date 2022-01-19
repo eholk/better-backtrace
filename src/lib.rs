@@ -47,7 +47,7 @@ fn format_backtrace(config: &BacktraceConfig, mut out: impl Write) {
 /// Decodes compiler generated name cruft into something more useful
 fn format_frame_name(name: &str) -> String {
     let is_async;
-    let name = if let Some((name, _generator)) = name.split_once("::generator$") {
+    let name = if let Some((name, _generator)) = name.split_once("::async_fn$") {
         is_async = true;
         name
     } else {
