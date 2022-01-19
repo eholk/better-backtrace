@@ -15,24 +15,46 @@ fn format_backtrace(config: &BacktraceConfig, mut out: impl Write) {
         BacktraceStyle::Short => !trace.contains_short_end,
         BacktraceStyle::Full => true,
     };
-    for (index, frame) in trace.frames.iter().enumerate() {
-        if matches!(config.style, BacktraceStyle::Short) {
-            if frame.name.contains("__rust_begin_short_backtrace") {
-                show_frames = false;
-            }
+    let mut index = 0;
+    for (real_index, frame) in trace.frames.iter().enumerate() {
+        if matches!(config.style, BacktraceStyle::Short)
+            && frame.name.contains("__rust_begin_short_backtrace")
+        {
+            show_frames = false;
         }
         if config.filter.should_display_frame(show_frames, &frame.name) {
-            writeln!(out, "{:2}: {}", index, frame.name).unwrap();
+            writeln!(
+                out,
+                "{:2} [{:2}]: {}",
+                index,
+                real_index,
+                format_frame_name(&frame.name)
+            )
+            .unwrap();
             if let Some((filename, line)) = &frame.file_position {
                 writeln!(out, "\tat {}:{}", filename, line).unwrap();
             }
+            index += 1;
         }
-        if matches!(config.style, BacktraceStyle::Short) {
-            if frame.name.contains("__rust_end_short_backtrace") {
-                show_frames = true;
-            }
+        if matches!(config.style, BacktraceStyle::Short)
+            && frame.name.contains("__rust_end_short_backtrace")
+        {
+            show_frames = true;
         }
     }
+}
+
+/// Decodes compiler generated name cruft into something more useful
+fn format_frame_name(name: &str) -> String {
+    let is_async;
+    let name = if let Some((name, _generator)) = name.split_once("::generator$") {
+        is_async = true;
+        name
+    } else {
+        is_async = false;
+        name
+    };
+    format!("{}fn {}", if is_async { "async " } else { "" }, name)
 }
 
 fn collect_backtrace() -> Backtrace {
@@ -180,7 +202,7 @@ impl FromStr for BacktraceConfig {
             return Ok(BacktraceConfig::default());
         }
 
-        if !s.starts_with("-") && !s.starts_with("+") {
+        if !s.starts_with('-') && !s.starts_with('+') {
             if let Some((style, filters)) = s.split_once(",") {
                 return Ok(BacktraceConfig {
                     style: BacktraceStyle::from_str(style)?,
