@@ -1,3 +1,5 @@
+#![feature(iter_intersperse)]
+
 use std::{io::Write, str::FromStr};
 
 mod panic_handler;
@@ -44,17 +46,122 @@ fn format_backtrace(config: &BacktraceConfig, mut out: impl Write) {
     }
 }
 
+struct FrameNameFormat<'a>(&'a str);
+
+impl std::fmt::Display for FrameNameFormat<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        format_helper(f, self.0, Context::Function)
+    }
+}
+
+#[derive(Clone, Copy)]
+enum Context {
+    Function,
+    Type,
+}
+
+/// A helper that's meant to be called recursively for formatting frame names.
+fn format_helper(f: &mut std::fmt::Formatter, frame: &str, context: Context) -> std::fmt::Result {
+    let is_async_;
+    let frame = match is_async(frame, context) {
+        Some(frame) => {
+            is_async_ = true;
+            frame
+        }
+        None => {
+            is_async_ = false;
+            frame
+        }
+    };
+    let fn_prefix = match (is_async_, context) {
+        (true, _) => "async fn ",
+        (false, Context::Function) => "fn ",
+        (false, Context::Type) => "",
+    };
+    match context {
+        Context::Function => match split_brackets(frame) {
+            Some((a, b, c)) => {
+                f.write_fmt(format_args!("{fn_prefix}{a}<"))?;
+                format_helper(f, b, Context::Type)?;
+                f.write_fmt(format_args!(">{c}"))
+            }
+            None => f.write_fmt(format_args!("{fn_prefix}{frame}")),
+        },
+        Context::Type => match split_brackets(frame) {
+            Some((a, b, c)) => {
+                a.split(',')
+                    .intersperse(",")
+                    .try_for_each(|chunk| format_helper(f, chunk, context))?;
+                //f.write_fmt(format_args!("{fn_prefix}{a}<"))?;
+                f.write_str("<")?;
+                format_helper(f, b, context)?;
+                f.write_str(">")?;
+                c.split(',')
+                    .intersperse(",")
+                    .try_for_each(|chunk| format_helper(f, chunk, context))
+            }
+            None => f.write_fmt(format_args!("{fn_prefix}{frame}")),
+        },
+    }
+}
+
+/// Returns None if the frame name is not async, otherwise Some of the name with the
+/// `::async_fn$0` trimmed off.
+fn is_async(frame: &str, context: Context) -> Option<&str> {
+    let frame = match split_brackets(frame) {
+        Some((frame, _, "")) => frame,
+        Some((_, _, frame)) => frame,
+        _ => frame,
+    };
+
+    match frame.rsplit_once('$') {
+        Some((begin, suffix)) if <i32>::from_str(suffix).is_ok() => {
+            match begin.rsplit_once(match context {
+                Context::Function => "::async_fn",
+                Context::Type => "::async_fn_env",
+            }) {
+                Some((name, "")) => Some(name),
+                _ => None,
+            }
+        }
+        _ => None,
+    }
+}
+
+/// Splits a string like A<B>C into ("A", "B", "C")
+///
+/// Note that B and C may have further brackets that need to be split.
+///
+/// If no brackets are present, returns None.
+fn split_brackets(s: &str) -> Option<(&str, &str, &str)> {
+    match s
+        .char_indices()
+        .fold((None, None, 0), |(open, close, depth), (i, c)| match c {
+            '<' => (open.or(Some(i)), close, depth + 1),
+            '>' => (
+                open,
+                if open.is_some() && depth == 1 {
+                    close.or(Some(i))
+                } else {
+                    close
+                },
+                depth - 1,
+            ),
+            _ => (open, close, depth),
+        }) {
+        (Some(open), Some(close), 0) => Some((
+            &s[..open],
+            s[open..close].split_once('<').unwrap().1,
+            s[close..].split_once('>').unwrap().1,
+        )),
+        _ => None,
+    }
+}
+
 /// Decodes compiler generated name cruft into something more useful
 fn format_frame_name(name: &str) -> String {
-    let is_async;
-    let name = if let Some((name, _generator)) = name.split_once("::async_fn$") {
-        is_async = true;
-        name
-    } else {
-        is_async = false;
-        name
-    };
-    format!("{}fn {}", if is_async { "async " } else { "" }, name)
+    format!("{}", FrameNameFormat(name))
+    // name.to_string()
 }
 
 fn collect_backtrace() -> Backtrace {

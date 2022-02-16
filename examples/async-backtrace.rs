@@ -38,9 +38,9 @@ where
 
     fn drop(_: *const ()) {}
 
-    const vtable: RawWakerVTable = RawWakerVTable::new(clone, wake, wake_by_ref, drop);
+    const VTABLE: RawWakerVTable = RawWakerVTable::new(clone, wake, wake_by_ref, drop);
 
-    let waker = unsafe { Waker::from_raw(RawWaker::new(ptr::null(), &vtable)) };
+    let waker = unsafe { Waker::from_raw(RawWaker::new(ptr::null(), &VTABLE)) };
 
     let mut cx = Context::from_waker(&waker);
 
